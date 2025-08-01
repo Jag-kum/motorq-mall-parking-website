@@ -1,7 +1,16 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useEffect, useState, Fragment } from "react";
 import Link from "next/link";
+import toast, { Toaster } from "react-hot-toast";
+import { CheckCircle, Car, Wrench, Search } from "lucide-react";
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip as ChartTooltip,
+} from "chart.js";
+import { Doughnut } from "react-chartjs-2";
 
+ChartJS.register(ArcElement, ChartTooltip);
 
 interface Slot {
   _id: string;
@@ -9,25 +18,47 @@ interface Slot {
   slotNumber: string;
   level: number;
   slotType: string;
-  status: string;
+  status: "Available" | "Occupied" | "Maintenance";
   currentPlate?: string;
 }
 
 export default function ParkingManagement() {
-  // States
+  /* ───────── state ───────── */
   const [slots, setSlots] = useState<Slot[]>([]);
   const [entryPlate, setEntryPlate] = useState("");
   const [entryType, setEntryType] = useState("Car");
-  const [billingType, setBillingType] = useState<"Hourly" | "Day Pass">(
-    "Hourly"
-  );
+  const [billingType, setBillingType] =
+    useState<"Hourly" | "Day Pass">("Hourly");
   const [exitPlate, setExitPlate] = useState("");
   const [searchPlate, setSearchPlate] = useState("");
   const [manualAssign, setManualAssign] = useState(false);
   const [manualSlot, setManualSlot] = useState("");
-  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const handleSearch = async () => {
+
+  /* ───────── derived ───────── */
+  const counts = slots.reduce(
+    (acc, s) => ({ ...acc, [s.status]: (acc[s.status] || 0) + 1 }),
+    {} as Record<Slot["status"], number>
+  );
+  const occupancyRate = slots.length
+    ? Math.round(((counts.Occupied || 0) / slots.length) * 100)
+    : 0;
+
+  /* ───────── effects ───────── */
+  useEffect(() => {
+    fetchSlots();
+    const id = setInterval(fetchSlots, 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  /* ───────── API helpers ───────── */
+  async function fetchSlots() {
+    const res = await fetch("/api/slots");
+    const json = await res.json();
+    setSlots(json.slots);
+  }
+
+  async function handleSearch() {
     if (!searchPlate) return;
     setLoading(true);
     try {
@@ -38,48 +69,21 @@ export default function ParkingManagement() {
       });
       const data = await res.json();
       if (res.ok && data.found) {
-        setMessage(
-          `Vehicle ${searchPlate.toUpperCase()} is parked at ${data.slotNumber} (Level ${data.level})`
+        toast.success(
+          `Vehicle ${searchPlate.toUpperCase()} → ${data.slotNumber} (Lvl ${data.level})`
         );
-      } else {
-        setMessage("Vehicle not found or not parked currently");
-      }
+      } else toast.error("Vehicle not found");
     } catch {
-      setMessage("Search failed");
+      toast.error("Search failed");
     }
     setLoading(false);
-  };
+  }
 
-  // Auto-dismiss notification toast after 5 seconds
-  useEffect(() => {
-    if (message) {
-      const t = setTimeout(() => setMessage(""), 5000);
-      return () => clearTimeout(t);
-    }
-  }, [message]);
-
-  // Load slots on mount and every 3 seconds
-  useEffect(() => {
-    fetchSlots();
-    const interval = setInterval(fetchSlots, 3000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchSlots = async () => {
-    try {
-      const res = await fetch("/api/slots");
-      const data = await res.json();
-      setSlots(data.slots);
-    } catch (error) {
-      console.error("Failed to fetch slots");
-    }
-  };
-
-  const handleEntry = async (e: React.FormEvent) => {
+  /* ───────── API helpers for entry/exit ───────── */
+  async function handleEntry(e: React.FormEvent) {
     e.preventDefault();
     if (!entryPlate) return;
     if (manualAssign && !manualSlot) return;
-
     setLoading(true);
     try {
       const res = await fetch("/api/entry", {
@@ -92,31 +96,22 @@ export default function ParkingManagement() {
           ...(manualAssign && { slotNumber: manualSlot.toUpperCase() }),
         }),
       });
-
       const data = await res.json();
       if (res.ok) {
-        setMessage(
-          ` Vehicle parked at ${data.slotNumber} (Level ${data.level})` +
-            (data.billingType === "Day Pass"
-              ? ` – Fee collected: ₹${data.fee}`
-              : "")
-        );
+        toast.success(`Parked at ${data.slotNumber} (Lvl ${data.level})${data.billingType === "Day Pass" ? ` – Fee ₹${data.fee}` : ""}`);
         setEntryPlate("");
         setManualSlot("");
         fetchSlots();
-      } else {
-        setMessage(` ${data.error}`);
-      }
+      } else toast.error(data.error);
     } catch {
-      setMessage(" Entry failed");
+      toast.error("Entry failed");
     }
     setLoading(false);
-  };
+  }
 
-  const handleExit = async (e: React.FormEvent) => {
+  async function handleExit(e: React.FormEvent) {
     e.preventDefault();
     if (!exitPlate) return;
-
     setLoading(true);
     try {
       const res = await fetch("/api/exit", {
@@ -124,355 +119,325 @@ export default function ParkingManagement() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plate: exitPlate.toUpperCase() }),
       });
-
       const data = await res.json();
       if (res.ok) {
-        setMessage(
+        toast.success(
           data.billingType === "Day Pass"
-            ? ` Vehicle exited from ${data.slotNumber}. Duration: ${data.duration} mins. Fee already collected (₹${data.fee})`
-            : ` Vehicle exited from ${data.slotNumber}. Duration: ${data.duration} mins. Fee: ₹${data.fee}`
+            ? `Exited ${data.slotNumber} – fee already collected`
+            : `Exited ${data.slotNumber} – Fee ₹${data.fee}`
         );
         setExitPlate("");
         fetchSlots();
-      } else {
-        setMessage(` ${data.error}`);
-      }
+      } else toast.error(data.error);
     } catch {
-      setMessage(" Exit failed");
+      toast.error("Exit failed");
     }
     setLoading(false);
-  };
+  }
 
-  const toggleMaintenance = async (
-    slotNumber: string,
-    currentStatus: string
-  ) => {
-    const newStatus =
-      currentStatus === "Maintenance" ? "Available" : "Maintenance";
-
+  async function toggleMaintenance(slotNumber: string, status: string) {
+    const newStatus = status === "Maintenance" ? "Available" : "Maintenance";
     try {
       const res = await fetch("/api/slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slotNumber, status: newStatus }),
       });
-      if (!res.ok) {
-        const data = await res.json();
-        setMessage(data.error || "Failed to update slot");
-        return;
-      }
+      const data = await res.json();
+      if (!res.ok) return toast.error(data.error || "Failed to update slot");
       fetchSlots();
     } catch {
-      setMessage("Failed to update slot");
+      toast.error("Failed to update slot");
     }
+  }
+
+  function slotsByLevel(list: Slot[]) {
+    return list.reduce((acc: Record<string, Slot[]>, s) => {
+      const name = s.level === 0 ? "Ground" : `Level ${s.level}`;
+      (acc[name] ||= []).push(s);
+      return acc;
+    }, {});
+  }
+
+  /* ───────── chart data ───────── */
+  const donutColors =
+    occupancyRate > 70
+      ? ["#f43f5e", "#e2e8f0"]
+      : occupancyRate > 40
+      ? ["#fbbf24", "#e2e8f0"]
+      : ["#10b981", "#e2e8f0"];
+  const chartData = {
+    datasets: [
+      {
+        data: [occupancyRate, 100 - occupancyRate],
+        backgroundColor: donutColors,
+        cutout: "70%",
+        borderWidth: 0,
+      },
+    ],
   };
 
-  // Group slots by level
-  const slotsByLevel = slots.reduce((acc, slot) => {
-    const levelName = slot.level === 0 ? "Ground" : `Level ${slot.level}`;
-    if (!acc[levelName]) acc[levelName] = [];
-    acc[levelName].push(slot);
-    return acc;
-  }, {} as Record<string, Slot[]>);
-
-  // Count slots by status
-  const counts = slots.reduce((acc, slot) => {
-    acc[slot.status] = (acc[slot.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-
-  // Calculate overall occupancy percentage
-  const occupancyRate = slots.length
-    ? Math.round(((counts.Occupied || 0) / slots.length) * 100)
-    : 0;
-
+  /* ───────── component ───────── */
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-6xl mx-auto">
-        <div className="sticky top-0 z-50 bg-white shadow p-4 flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-          <h1 className="text-2xl font-bold text-gray-800">
-            Parking Management System
-          </h1>
-          <Link
-            href="/revenue"
-            className="text-indigo-600 hover:text-indigo-700"
-          >
-            Revenue
-          </Link>
-          <div className="flex items-center gap-2">
-            <div>
-              <input
-                type="text"
-                value={searchPlate}
-                onChange={(e) => setSearchPlate(e.target.value.toUpperCase())}
-                pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
-                title="Format: TN07CV7077"
-                placeholder="Search vehicle"
-                className="px-3 py-2 rounded-md bg-slate-100 focus:bg-white focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-            <button
-              onClick={handleSearch}
-              disabled={loading}
-              className="px-3.5 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              Search
-            </button>
-          </div>
-        </div>
-
-        {/* Info Banner */}
-        <div className="mb-6 bg-indigo-50 border border-indigo-200 rounded-md p-3 text-sm text-indigo-800 space-y-2 md:space-y-0 md:flex md:items-center md:justify-between">
-          <div>
-            Hourly Rates: 0–1h ₹50 | 1–3h ₹100 | 3–6h ₹150 | Max ₹200/day. Day
-            Pass: ₹150
-          </div>
-          <div className="flex gap-4">
-            <div className="flex items-center gap-1">
-              <span className="inline-block w-3 h-3 rounded-full bg-emerald-400"></span>
-              <span>Available</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="inline-block w-3 h-3 rounded-full bg-rose-400"></span>
-              <span>Occupied</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="inline-block w-3 h-3 rounded-full bg-amber-400"></span>
-              <span>Maintenance</span>
-            </div>
-          </div>
-          <div className="font-medium">Have a pleasant visit!</div>
-        </div>
-
-        {/* Status Summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
-          {/* Occupancy Progress */}
-          <div className="sm:col-span-1 bg-white p-6 rounded-2xl shadow-lg flex flex-col justify-center">
-            <h3 className="text-md font-semibold text-gray-600 mb-3 text-center">
-              Occupancy Rate
-            </h3>
-            <div className="relative w-full bg-gray-200 rounded-full h-4">
-              <div
-                style={{ width: `${occupancyRate}%` }}
-                className={`absolute h-4 rounded-full ${
-                  occupancyRate > 70
-                    ? "bg-red-500"
-                    : occupancyRate > 40
-                    ? "bg-yellow-500"
-                    : "bg-green-500"
-                }`}
-              />
-              <span className="absolute w-full text-center text-xs font-semibold text-gray-800">
-                {occupancyRate}%
-              </span>
-            </div>
-          </div>
-
-          {/* Status Cards */}
-          <div className="col-span-1 sm:col-span-3 grid grid-cols-3 gap-4">
-            <div className="rounded-xl shadow flex flex-col items-center py-5 bg-emerald-100 text-emerald-600">
-              <div className="text-3xl font-bold">{counts.Available || 0}</div>
-              <span className="text-sm mt-1">Available</span>
-            </div>
-            <div className="rounded-xl shadow flex flex-col items-center py-5 bg-rose-100 text-rose-600">
-              <div className="text-3xl font-bold">{counts.Occupied || 0}</div>
-              <span className="text-sm mt-1">Occupied</span>
-            </div>
-            <div className="rounded-xl shadow flex flex-col items-center py-5 bg-amber-100 text-amber-600">
-              <div className="text-3xl font-bold">
-                {counts.Maintenance || 0}
-              </div>
-              <span className="text-sm mt-1">Maintenance</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Entry and Exit Forms */}
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
-          {/* Entry Form */}
-          <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4 text-indigo-600">
-              Vehicle Entry
-            </h2>
-            <form onSubmit={handleEntry} className="space-y-4">
-              <input
-                type="text"
-                value={entryPlate}
-                onChange={(e) => setEntryPlate(e.target.value.toUpperCase())}
-                placeholder="License Plate (e.g., TN07CV7077)"
-                pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
-                title="Format: 2 letters, 2 digits, 1-2 letters, 4 digits. Example: TN07CV7077"
-                className="w-full p-3 border border-gray-300 rounded-md"
-                required
-              />
-              <select
-                value={entryType}
-                onChange={(e) => setEntryType(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-md"
+    <Fragment>
+      <Toaster position="bottom-right" toastOptions={{ duration: 5000 }} />
+      <main className="min-h-screen bg-gray-50 p-4">
+        <div className="mx-auto max-w-6xl space-y-6">
+          {/* Header */}
+          <header className="sticky top-0 z-40 flex flex-col gap-4 rounded-2xl bg-white/70 p-4 shadow backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+            <h1 className="text-3xl font-extrabold tracking-tight text-gray-800">
+              Parking Management System
+            </h1>
+            <div className="flex flex-1 items-center justify-end gap-4">
+              <Link
+                href="/revenue"
+                className="text-indigo-600 transition hover:text-indigo-700"
               >
-                <option value="Car"> Car</option>
-                <option value="Bike">Bike</option>
-                <option value="EV"> Electric Vehicle</option>
-                <option value="Handicap Accessible">
-                  {" "}
-                  Handicap Accessible
-                </option>
-              </select>
-
-              {/* Billing Type */}
-              <select
-                value={billingType}
-                onChange={(e) => setBillingType(e.target.value as any)}
-                className="w-full p-3 border border-gray-300 rounded-md"
-              >
-                <option value="Hourly"> Hourly</option>
-                <option value="Day Pass"> Day Pass</option>
-              </select>
-              <div className="flex items-center gap-2">
+                Revenue
+              </Link>
+              {/* search box */}
+              <div className="flex items-center overflow-hidden rounded-xl bg-slate-100 focus-within:ring-2 focus-within:ring-indigo-500">
+                <Search className="mx-2 h-4 w-4 flex-shrink-0 text-slate-400" />
                 <input
-                  type="checkbox"
-                  id="manualAssign"
-                  checked={manualAssign}
-                  onChange={(e) => setManualAssign(e.target.checked)}
+                  className="w-36 bg-transparent px-2 py-2 text-sm outline-none"
+                  placeholder="TN07CV7077"
+                  value={searchPlate}
+                  onChange={(e) => setSearchPlate(e.target.value.toUpperCase())}
+                  pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
                 />
-                <label htmlFor="manualAssign" className="text-sm">
-                  Assign slot manually
-                </label>
               </div>
-              {manualAssign && (
+              <button
+                onClick={handleSearch}
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+                disabled={loading}
+              >
+                Search
+              </button>
+            </div>
+          </header>
+
+          {/* Info banner */}
+          <section className="flex flex-col gap-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-800 md:flex-row md:items-center md:justify-between">
+            <p className="font-medium">
+              Hourly: 0–1h ₹50 · 1–3h ₹100 · 3–6h ₹150 · Max ₹200/day — Day-Pass
+              ₹150
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <LegendDot color="bg-emerald-400" label="Available" />
+              <LegendDot color="bg-rose-400" label="Occupied" />
+              <LegendDot color="bg-amber-400" label="Maintenance" />
+            </div>
+            <p className="font-semibold">Have a pleasant visit!</p>
+          </section>
+
+          {/* Dashboard */}
+          <section className="grid gap-4 sm:grid-cols-4">
+            {/* donut */}
+            <div className="flex flex-col items-center justify-center rounded-2xl bg-white p-6 shadow-lg sm:col-span-1">
+              <Doughnut
+                data={chartData}
+                options={{ plugins: { tooltip: { enabled: false } } }}
+              />
+              <p className="mt-3 text-sm font-medium text-gray-600">Occupied</p>
+            </div>
+            {/* cards */}
+            <div className="grid grid-cols-3 gap-4 sm:col-span-3">
+              <StatCard
+                color="emerald"
+                label="Available"
+                count={counts.Available || 0}
+                Icon={CheckCircle}
+              />
+              <StatCard
+                color="rose"
+                label="Occupied"
+                count={counts.Occupied || 0}
+                Icon={Car}
+              />
+              <StatCard
+                color="amber"
+                label="Maintenance"
+                count={counts.Maintenance || 0}
+                Icon={Wrench}
+              />
+            </div>
+          </section>
+
+          {/* ───────────────── Entry + Exit Forms ───────────────── */}
+          <section className="grid gap-6 md:grid-cols-2">
+            {/* Entry */}
+            <form
+              onSubmit={handleEntry}
+              className="space-y-4 rounded-2xl bg-white p-6 shadow"
+            >
+              <h2 className="text-xl font-semibold text-indigo-600">Vehicle Entry</h2>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Number Plate</label>
+                <div className="relative">
+                  <input
+                    value={entryPlate}
+                    onChange={(e) => setEntryPlate(e.target.value.toUpperCase())}
+                    placeholder="TN07CV7077"
+                    pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
+                    required
+                    className="w-full rounded-xl border border-gray-300 p-3 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Vehicle Type</label>
+                <select
+                  value={entryType}
+                  onChange={(e) => setEntryType(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 p-3 focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option>Car</option>
+                  <option>Bike</option>
+                  <option>EV</option>
+                  <option>Handicap Accessible</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Billing</label>
+                <select
+                  value={billingType}
+                  onChange={(e) =>
+                    setBillingType(e.target.value as "Hourly" | "Day Pass")
+                  }
+                  className="w-full rounded-xl border border-gray-300 p-3 focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option>Hourly</option>
+                  <option>Day Pass</option>
+                </select>
+              </div>
+
+              <details className="rounded-xl border border-gray-200 p-3">
+                <summary className="cursor-pointer select-none text-sm font-medium text-gray-700">
+                  Manual Slot Assignment
+                </summary>
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={manualAssign}
+                    onChange={(e) => setManualAssign(e.target.checked)}
+                  />
+                  <input
+                    disabled={!manualAssign}
+                    value={manualSlot}
+                    onChange={(e) => setManualSlot(e.target.value.toUpperCase())}
+                    placeholder="G-H-001"
+                    className="flex-1 rounded-xl border border-gray-300 p-2 disabled:opacity-50"
+                  />
+                </div>
+              </details>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-xl bg-indigo-600 py-3 font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {loading ? "Processing…" : "Park Vehicle"}
+              </button>
+            </form>
+
+            {/* Exit */}
+            <form
+              onSubmit={handleExit}
+              className="space-y-4 rounded-2xl bg-white p-6 shadow"
+            >
+              <h2 className="text-xl font-semibold text-rose-600">Vehicle Exit</h2>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Number Plate</label>
                 <input
-                  type="text"
-                  value={manualSlot}
-                  onChange={(e) => setManualSlot(e.target.value.toUpperCase())}
-                  placeholder="Slot Code (e.g., G-H-001)"
-                  className="w-full p-3 border border-gray-300 rounded-md"
+                  value={exitPlate}
+                  onChange={(e) => setExitPlate(e.target.value.toUpperCase())}
+                  placeholder="TN07CV7077"
+                  pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
                   required
+                  className="w-full rounded-xl border border-gray-300 p-3 focus:ring-2 focus:ring-rose-500"
                 />
-              )}
+              </div>
+
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-indigo-600 text-white py-3 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                className="w-full rounded-xl bg-rose-600 py-3 font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
               >
-                {loading ? "Processing..." : "Park Vehicle"}
+                {loading ? "Processing…" : "Exit Vehicle"}
               </button>
             </form>
-          </div>
+          </section>
 
-          {/* Exit Form */}
-          <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4 text-rose-600">
-              Vehicle Exit
-            </h2>
-            <form onSubmit={handleExit} className="space-y-4">
-              <input
-                type="text"
-                value={exitPlate}
-                onChange={(e) => setExitPlate(e.target.value.toUpperCase())}
-                placeholder="License Plate (e.g., TN07CV7077)"
-                pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
-                title="Format: TN07CV7077"
-                className="w-full p-3 border border-gray-300 rounded-md"
-                required
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-rose-600 text-white py-3 rounded-md hover:bg-rose-700 disabled:opacity-50"
-              >
-                {loading ? "Processing..." : "Exit Vehicle"}
-              </button>
-            </form>
-          </div>
-        </div>
-
-        {/* Message Display */}
-        {message && (
-          <div className="fixed bottom-4 right-4 bg-white shadow-lg border-l-4 border-blue-500 p-4 rounded-md max-w-sm z-50">
-            <p className="text-lg">{message}</p>
-            <button
-              onClick={() => setMessage("")}
-              className="mt-2 text-blue-600 underline"
-            >
-              Clear
-            </button>
-          </div>
-        )}
-
-        {/* Slot Grid by Level */}
-        <div className="space-y-8">
-          {Object.entries(slotsByLevel).map(([level, levelSlots]) => (
-            <div key={level} className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-xl font-semibold mb-4 text-gray-700 flex items-center justify-between">
-                <span>{level}</span>
-                <span className="text-sm font-normal text-gray-500">
-                  {levelSlots.filter((s) => s.status === "Occupied").length}/
-                  {levelSlots.length} occupied
-                </span>
-              </h3>
-              <div className="grid grid-cols-8 md:grid-cols-12 lg:grid-cols-16 gap-2">
+          {/* ───────────────── Slot Grid ───────────────── */}
+          {Object.entries(slotsByLevel(slots)).map(([level, levelSlots]) => (
+            <section key={level} className="space-y-4">
+              <h3 className="text-lg font-semibold text-gray-700">{level}</h3>
+              <div className="grid grid-cols-8 gap-2 md:grid-cols-12 lg:grid-cols-16">
                 {levelSlots.map((slot) => (
                   <div
                     key={slot._id}
-                    className={`
-                      relative p-2 text-xs text-center rounded cursor-pointer transition-all
-                      ${
-                        slot.status === "Available"
-                          ? "bg-emerald-200 hover:bg-emerald-300 text-emerald-800"
-                          : slot.status === "Occupied"
-                          ? "bg-rose-200 text-rose-800"
-                          : "bg-amber-200 hover:bg-amber-300 text-amber-800"
-                      }
-                    `}
                     onClick={() =>
                       slot.status !== "Occupied" &&
-                      toggleMaintenance(
-                        slot.slotNumber || slot.slotCode,
-                        slot.status
-                      )
+                      toggleMaintenance(slot.slotNumber || slot.slotCode, slot.status)
                     }
-                    title={`${slot.slotCode} - ${slot.slotType} - ${
-                      slot.status
-                    }${slot.currentPlate ? ` (${slot.currentPlate})` : ""}`}
+                    title={`${slot.slotCode} - ${slot.status}${slot.currentPlate ? ` (${slot.currentPlate})` : ""}`}
+                    className={`relative cursor-pointer rounded p-2 text-center text-xs transition-all duration-200 hover:shadow-lg
+                      ${
+                        slot.status === "Available"
+                          ? "bg-emerald-200 text-emerald-800 hover:bg-emerald-300"
+                          : slot.status === "Occupied"
+                          ? "bg-rose-200 text-rose-800"
+                          : "bg-amber-200 text-amber-800 hover:bg-amber-300"
+                      }`}
                   >
                     <div className="font-bold">
                       {slot.slotCode.split("-").pop()}
                     </div>
-                    <div className="text-xs">{slot.slotType.charAt(0)}</div>
                     {slot.currentPlate && (
-                      <div className="text-xs truncate">
+                      <div className="truncate text-[10px]" title={slot.currentPlate}>
                         {slot.currentPlate}
                       </div>
                     )}
                   </div>
                 ))}
               </div>
-              <div className="mt-2 text-sm text-gray-600">
-                Click available/maintenance slots to toggle maintenance mode
-              </div>
-            </div>
+            </section>
           ))}
-        </div>
 
-        {/* Legend */}
-        <div className="mt-8 bg-white p-4 rounded-lg shadow">
-          <h4 className="font-semibold mb-2">Color Legend:</h4>
-          <div className="flex flex-wrap gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-emerald-200 rounded"></div>
-              <span>Available</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-rose-200 rounded"></div>
-              <span>Occupied</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-amber-200 rounded"></div>
-              <span>Maintenance</span>
-            </div>
-          </div>
         </div>
-      </div>
+      </main>
+    </Fragment>
+  );
+}
+
+/* ───────── helpers ───────── */
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-gray-700">
+      <span className={`h-3 w-3 rounded-full ${color}`} />
+      {label}
+    </span>
+  );
+}
+
+interface StatProps {
+  color: "emerald" | "rose" | "amber";
+  label: string;
+  count: number;
+  Icon: typeof CheckCircle;
+}
+function StatCard({ color, label, count, Icon }: StatProps) {
+  return (
+    <div
+      className={`rounded-2xl bg-${color}-100 text-${color}-600 flex flex-col items-center py-6 shadow transition-all duration-300 hover:shadow-xl`}
+    >
+      <Icon className="h-6 w-6" />
+      <span className="mt-1 text-3xl font-extrabold">{count}</span>
+      <span className="text-sm font-medium">{label}</span>
     </div>
   );
 }
