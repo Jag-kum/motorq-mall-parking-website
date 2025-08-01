@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
+
 interface Slot {
   _id: string;
   slotCode: string;
@@ -48,6 +49,14 @@ export default function ParkingManagement() {
     }
     setLoading(false);
   };
+
+  // Auto-dismiss notification toast after 5 seconds
+  useEffect(() => {
+    if (message) {
+      const t = setTimeout(() => setMessage(""), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [message]);
 
   // Load slots on mount and every 3 seconds
   useEffect(() => {
@@ -180,46 +189,72 @@ export default function ParkingManagement() {
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">
-          Parking Management System
-        </h1>
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-           <Link
-             href="/revenue"
-             className="text-blue-600 underline hover:text-blue-800"
-           >
-             View Revenue & Billing
-           </Link>
-           <div className="flex gap-2">
-             <input
-               type="text"
-               value={searchPlate}
-               onChange={(e) => setSearchPlate(e.target.value.toUpperCase())}
-               pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
-               title="Format: TN07CV7077"
-               placeholder="Search vehicle (e.g., MH12AB1234)"
-               className="p-2 border border-gray-300 rounded-md"
-             />
-             <button
-               onClick={handleSearch}
-               disabled={loading}
-               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-             >
-               Search
-             </button>
-           </div>
-         </div>
+        <div className="sticky top-0 z-50 bg-white shadow p-4 flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+          <h1 className="text-2xl font-bold text-gray-800">
+            Parking Management System
+          </h1>
+          <Link
+            href="/revenue"
+            className="text-indigo-600 hover:text-indigo-700"
+          >
+            Revenue
+          </Link>
+          <div className="flex items-center gap-2">
+            <div>
+              <input
+                type="text"
+                value={searchPlate}
+                onChange={(e) => setSearchPlate(e.target.value.toUpperCase())}
+                pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
+                title="Format: TN07CV7077"
+                placeholder="Search vehicle"
+                className="px-3 py-2 rounded-md bg-slate-100 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <button
+              onClick={handleSearch}
+              disabled={loading}
+              className="px-3.5 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              Search
+            </button>
+          </div>
+        </div>
+
+        {/* Info Banner */}
+        <div className="mb-6 bg-indigo-50 border border-indigo-200 rounded-md p-3 text-sm text-indigo-800 space-y-2 md:space-y-0 md:flex md:items-center md:justify-between">
+          <div>
+            Hourly Rates: 0–1h ₹50 | 1–3h ₹100 | 3–6h ₹150 | Max ₹200/day. Day
+            Pass: ₹150
+          </div>
+          <div className="flex gap-4">
+            <div className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-full bg-emerald-400"></span>
+              <span>Available</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-full bg-rose-400"></span>
+              <span>Occupied</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-full bg-amber-400"></span>
+              <span>Maintenance</span>
+            </div>
+          </div>
+          <div className="font-medium">Have a pleasant visit!</div>
+        </div>
+
         {/* Status Summary */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
           {/* Occupancy Progress */}
-          <div className="sm:col-span-1 bg-white p-4 rounded-lg shadow flex flex-col justify-center">
-            <h3 className="text-sm font-medium text-gray-600 mb-2 text-center">
-              Occupancy
+          <div className="sm:col-span-1 bg-white p-6 rounded-2xl shadow-lg flex flex-col justify-center">
+            <h3 className="text-md font-semibold text-gray-600 mb-3 text-center">
+              Occupancy Rate
             </h3>
-            <div className="w-full bg-gray-200 rounded-full h-4">
+            <div className="relative w-full bg-gray-200 rounded-full h-4">
               <div
                 style={{ width: `${occupancyRate}%` }}
-                className={`h-4 rounded-full ${
+                className={`absolute h-4 rounded-full ${
                   occupancyRate > 70
                     ? "bg-red-500"
                     : occupancyRate > 40
@@ -227,31 +262,27 @@ export default function ParkingManagement() {
                     : "bg-green-500"
                 }`}
               />
+              <span className="absolute w-full text-center text-xs font-semibold text-gray-800">
+                {occupancyRate}%
+              </span>
             </div>
-            <p className="mt-1 text-center text-sm text-gray-600">
-              {occupancyRate}% occupied
-            </p>
           </div>
 
           {/* Status Cards */}
           <div className="col-span-1 sm:col-span-3 grid grid-cols-3 gap-4">
-            <div className="bg-green-100 p-4 rounded-lg text-center">
-              <div className="text-2xl font-bold text-green-800">
-                {counts.Available || 0}
-              </div>
-              <div className="text-green-600">Available</div>
+            <div className="rounded-xl shadow flex flex-col items-center py-5 bg-emerald-100 text-emerald-600">
+              <div className="text-3xl font-bold">{counts.Available || 0}</div>
+              <span className="text-sm mt-1">Available</span>
             </div>
-            <div className="bg-red-100 p-4 rounded-lg text-center">
-              <div className="text-2xl font-bold text-red-800">
-                {counts.Occupied || 0}
-              </div>
-              <div className="text-red-600">Occupied</div>
+            <div className="rounded-xl shadow flex flex-col items-center py-5 bg-rose-100 text-rose-600">
+              <div className="text-3xl font-bold">{counts.Occupied || 0}</div>
+              <span className="text-sm mt-1">Occupied</span>
             </div>
-            <div className="bg-yellow-100 p-4 rounded-lg text-center">
-              <div className="text-2xl font-bold text-yellow-800">
+            <div className="rounded-xl shadow flex flex-col items-center py-5 bg-amber-100 text-amber-600">
+              <div className="text-3xl font-bold">
                 {counts.Maintenance || 0}
               </div>
-              <div className="text-yellow-600">Maintenance</div>
+              <span className="text-sm mt-1">Maintenance</span>
             </div>
           </div>
         </div>
@@ -260,20 +291,20 @@ export default function ParkingManagement() {
         <div className="grid md:grid-cols-2 gap-6 mb-8">
           {/* Entry Form */}
           <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4 text-green-700">
-               Vehicle Entry
+            <h2 className="text-xl font-semibold mb-4 text-indigo-600">
+              Vehicle Entry
             </h2>
             <form onSubmit={handleEntry} className="space-y-4">
               <input
-                 type="text"
-                 value={entryPlate}
-                 onChange={(e) => setEntryPlate(e.target.value.toUpperCase())}
-                 placeholder="License Plate (e.g., TN07CV7077)"
-                 pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
-                 title="Format: 2 letters, 2 digits, 1-2 letters, 4 digits. Example: TN07CV7077"
-                 className="w-full p-3 border border-gray-300 rounded-md"
-                 required
-               />
+                type="text"
+                value={entryPlate}
+                onChange={(e) => setEntryPlate(e.target.value.toUpperCase())}
+                placeholder="License Plate (e.g., TN07CV7077)"
+                pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
+                title="Format: 2 letters, 2 digits, 1-2 letters, 4 digits. Example: TN07CV7077"
+                className="w-full p-3 border border-gray-300 rounded-md"
+                required
+              />
               <select
                 value={entryType}
                 onChange={(e) => setEntryType(e.target.value)}
@@ -321,7 +352,7 @@ export default function ParkingManagement() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-green-600 text-white py-3 rounded-md hover:bg-green-700 disabled:opacity-50"
+                className="w-full bg-indigo-600 text-white py-3 rounded-md hover:bg-indigo-700 disabled:opacity-50"
               >
                 {loading ? "Processing..." : "Park Vehicle"}
               </button>
@@ -330,24 +361,24 @@ export default function ParkingManagement() {
 
           {/* Exit Form */}
           <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4 text-red-700">
-               Vehicle Exit
+            <h2 className="text-xl font-semibold mb-4 text-rose-600">
+              Vehicle Exit
             </h2>
             <form onSubmit={handleExit} className="space-y-4">
               <input
-               type="text"
-               value={exitPlate}
-               onChange={(e) => setExitPlate(e.target.value.toUpperCase())}
-               placeholder="License Plate (e.g., TN07CV7077)"
-               pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
-               title="Format: TN07CV7077"
-               className="w-full p-3 border border-gray-300 rounded-md"
-               required
-             />
+                type="text"
+                value={exitPlate}
+                onChange={(e) => setExitPlate(e.target.value.toUpperCase())}
+                placeholder="License Plate (e.g., TN07CV7077)"
+                pattern="[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}"
+                title="Format: TN07CV7077"
+                className="w-full p-3 border border-gray-300 rounded-md"
+                required
+              />
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-red-600 text-white py-3 rounded-md hover:bg-red-700 disabled:opacity-50"
+                className="w-full bg-rose-600 text-white py-3 rounded-md hover:bg-rose-700 disabled:opacity-50"
               >
                 {loading ? "Processing..." : "Exit Vehicle"}
               </button>
@@ -357,7 +388,7 @@ export default function ParkingManagement() {
 
         {/* Message Display */}
         {message && (
-          <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-6 text-center">
+          <div className="fixed bottom-4 right-4 bg-white shadow-lg border-l-4 border-blue-500 p-4 rounded-md max-w-sm z-50">
             <p className="text-lg">{message}</p>
             <button
               onClick={() => setMessage("")}
@@ -387,10 +418,10 @@ export default function ParkingManagement() {
                       relative p-2 text-xs text-center rounded cursor-pointer transition-all
                       ${
                         slot.status === "Available"
-                          ? "bg-green-200 hover:bg-green-300 text-green-800"
+                          ? "bg-emerald-200 hover:bg-emerald-300 text-emerald-800"
                           : slot.status === "Occupied"
-                          ? "bg-red-200 text-red-800"
-                          : "bg-yellow-200 hover:bg-yellow-300 text-yellow-800"
+                          ? "bg-rose-200 text-rose-800"
+                          : "bg-amber-200 hover:bg-amber-300 text-amber-800"
                       }
                     `}
                     onClick={() =>
@@ -428,15 +459,15 @@ export default function ParkingManagement() {
           <h4 className="font-semibold mb-2">Color Legend:</h4>
           <div className="flex flex-wrap gap-4 text-sm">
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-green-200 rounded"></div>
+              <div className="w-4 h-4 bg-emerald-200 rounded"></div>
               <span>Available</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-red-200 rounded"></div>
+              <div className="w-4 h-4 bg-rose-200 rounded"></div>
               <span>Occupied</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-yellow-200 rounded"></div>
+              <div className="w-4 h-4 bg-amber-200 rounded"></div>
               <span>Maintenance</span>
             </div>
           </div>
