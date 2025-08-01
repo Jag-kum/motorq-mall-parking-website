@@ -1,5 +1,16 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { Bar, Pie } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  ArcElement,
+  Tooltip as ChartTooltip,
+  Legend,
+} from "chart.js";
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, ChartTooltip, Legend);
 
 interface SessionInfo {
   _id: string;
@@ -16,6 +27,29 @@ interface SessionInfo {
 export default function RevenuePage() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [total, setTotal] = useState(0);
+  // memoized revenue breakdown
+  const dailyData = useMemo(() => {
+    const map: Record<string, number> = {};
+    sessions.forEach((s) => {
+      const fee = (s.billingAmount.fixed || 0) + (s.billingAmount.calculated || 0);
+      const day = new Date(s.exitTime).toLocaleDateString();
+      map[day] = (map[day] || 0) + fee;
+    });
+    const labels = Object.keys(map).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    const data = labels.map((l) => map[l]);
+    return { labels, data };
+  }, [sessions]);
+
+  const typeBreakdown = useMemo(() => {
+    let hourly = 0,
+      dayPass = 0;
+    sessions.forEach((s) => {
+      const fee = (s.billingAmount.fixed || 0) + (s.billingAmount.calculated || 0);
+      if (s.billingType === "Day Pass") dayPass += fee;
+      else hourly += fee;
+    });
+    return { hourly, dayPass };
+  }, [sessions]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -53,7 +87,7 @@ export default function RevenuePage() {
           </div>
         )}
 
-        <div className="bg-white p-6 rounded-lg shadow mb-6">
+        <div className="bg-white p-6 rounded-2xl shadow mb-6">
           <h2 className="text-xl font-semibold mb-4">Total Revenue</h2>
           {loading ? (
             <p>Loading...</p>
@@ -62,7 +96,47 @@ export default function RevenuePage() {
           )}
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        {/* Charts */}
+        <div className="grid gap-6 md:grid-cols-3 mb-8">
+          {/* Daily revenue bar */}
+          <div className="rounded-2xl bg-white p-4 shadow md:col-span-2">
+            <h3 className="mb-2 text-lg font-semibold">Daily Revenue</h3>
+            <Bar
+              data={{
+                labels: dailyData.labels,
+                datasets: [
+                  {
+                    label: "₹",
+                    data: dailyData.data,
+                    backgroundColor: "#4f46e5",
+                  },
+                ],
+              }}
+              options={{
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true } },
+              }}
+            />
+          </div>
+          {/* Billing type pie */}
+          <div className="rounded-2xl bg-white p-4 shadow">
+            <h3 className="mb-2 text-lg font-semibold">Hourly vs Day-Pass</h3>
+            <Pie
+              data={{
+                labels: ["Hourly", "Day Pass"],
+                datasets: [
+                  {
+                    data: [typeBreakdown.hourly, typeBreakdown.dayPass],
+                    backgroundColor: ["#10b981", "#fbbf24"],
+                  },
+                ],
+              }}
+              options={{ plugins: { legend: { position: "bottom" } } }}
+            />
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow">
           <h2 className="text-xl font-semibold mb-4">Completed Sessions</h2>
           {loading ? (
             <p>Loading...</p>
